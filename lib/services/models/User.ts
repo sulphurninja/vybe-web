@@ -51,6 +51,9 @@ const UserSchema = new Schema({
   // Push notification token
   pushToken: String,
   
+  // Expo push token for mobile notifications
+  expoPushToken: String,
+  
   // Status
   status: { type: String, enum: ['active', 'suspended', 'deleted'], default: 'active' },
   lastActive: { type: Date, default: Date.now },

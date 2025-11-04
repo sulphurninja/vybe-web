@@ -1,21 +1,28 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import Notification from "@/lib/services/models/Notification";
+import { NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import Notification from '@/lib/services/models/Notification';
 
-// GET - Get user's notifications
+export const dynamic = 'force-dynamic';
+
+type Ctx = { params: Promise<{ id?: string }> };
+
+// GET - Fetch notifications for a user
 export async function GET(req: Request) {
   await db();
+  
   const { searchParams } = new URL(req.url);
   const userId = searchParams.get('userId');
-  const unreadOnly = searchParams.get('unreadOnly') === 'true';
   const limit = parseInt(searchParams.get('limit') || '50');
+  const skip = parseInt(searchParams.get('skip') || '0');
+  const unreadOnly = searchParams.get('unreadOnly') === 'true';
 
   if (!userId) {
-    return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+    return NextResponse.json({ error: 'userId is required' }, { status: 400 });
   }
 
   try {
     const query: any = { userId };
+    
     if (unreadOnly) {
       query.read = false;
     }
@@ -23,24 +30,41 @@ export async function GET(req: Request) {
     const notifications = await Notification.find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
+      .skip(skip)
       .lean();
 
-    return NextResponse.json({ notifications });
+    const totalCount = await Notification.countDocuments(query);
+    const unreadCount = await Notification.countDocuments({ userId, read: false });
+
+    console.log(`📬 Fetched ${notifications.length} notifications for user ${userId} (unread: ${unreadCount})`);
+
+    return NextResponse.json({
+      notifications,
+      totalCount,
+      unreadCount,
+      hasMore: skip + limit < totalCount,
+    });
   } catch (error: any) {
     console.error('Error fetching notifications:', error);
-    return NextResponse.json({ error: error.message || 'Failed to fetch notifications' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Failed to fetch notifications' },
+      { status: 500 }
+    );
   }
 }
 
-// POST - Create a new notification
+// POST - Create a notification (internal API)
 export async function POST(req: Request) {
   await db();
+  
   const body = await req.json();
-
-  const { userId, type, title, message, eventId, optionId, fromUserId, actionUrl } = body;
+  const { userId, type, title, message, eventId, optionId, fromUserId, fromUserName, actionUrl } = body;
 
   if (!userId || !type || !title || !message) {
-    return NextResponse.json({ error: "User ID, type, title, and message are required" }, { status: 400 });
+    return NextResponse.json(
+      { error: 'userId, type, title, and message are required' },
+      { status: 400 }
+    );
   }
 
   try {
@@ -52,43 +76,88 @@ export async function POST(req: Request) {
       eventId,
       optionId,
       fromUserId,
+      fromUserName,
       actionUrl,
+      read: false,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
     });
+
+    console.log(`📬 Created notification for user ${userId}: ${type}`);
 
     return NextResponse.json(notification, { status: 201 });
   } catch (error: any) {
     console.error('Error creating notification:', error);
-    return NextResponse.json({ error: error.message || 'Failed to create notification' }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || 'Failed to create notification' },
+      { status: 500 }
+    );
   }
 }
 
-// PATCH - Mark notifications as read
+// PATCH - Mark notification as read
 export async function PATCH(req: Request) {
   await db();
+  
   const body = await req.json();
-  const { notificationIds, userId, markAllRead } = body;
+  const { notificationId, notificationIds, markAllAsRead, userId } = body;
+
+  if (!notificationId && !notificationIds && !markAllAsRead) {
+    return NextResponse.json(
+      { error: 'notificationId, notificationIds, or markAllAsRead is required' },
+      { status: 400 }
+    );
+  }
 
   try {
-    if (markAllRead && userId) {
-      // Mark all notifications for user as read
-      await Notification.updateMany(
+    if (markAllAsRead && userId) {
+      // Mark all notifications as read for user
+      const result = await Notification.updateMany(
         { userId, read: false },
         { read: true, readAt: new Date() }
       );
-      return NextResponse.json({ message: "All notifications marked as read" });
+
+      console.log(`📬 Marked ${result.modifiedCount} notifications as read for user ${userId}`);
+
+      return NextResponse.json({
+        message: `Marked ${result.modifiedCount} notifications as read`,
+        modifiedCount: result.modifiedCount,
+      });
     } else if (notificationIds && Array.isArray(notificationIds)) {
-      // Mark specific notifications as read
-      await Notification.updateMany(
-        { _id: { $in: notificationIds } },
+      // Mark multiple notifications as read
+      const result = await Notification.updateMany(
+        { _id: { $in: notificationIds }, read: false },
         { read: true, readAt: new Date() }
       );
-      return NextResponse.json({ message: "Notifications marked as read" });
-    } else {
-      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+
+      console.log(`📬 Marked ${result.modifiedCount} notifications as read`);
+
+      return NextResponse.json({
+        message: `Marked ${result.modifiedCount} notifications as read`,
+        modifiedCount: result.modifiedCount,
+      });
+    } else if (notificationId) {
+      // Mark single notification as read
+      const notification = await Notification.findByIdAndUpdate(
+        notificationId,
+        { read: true, readAt: new Date() },
+        { new: true }
+      );
+
+      if (!notification) {
+        return NextResponse.json({ error: 'Notification not found' }, { status: 404 });
+      }
+
+      console.log(`📬 Marked notification ${notificationId} as read`);
+
+      return NextResponse.json(notification);
     }
   } catch (error: any) {
-    console.error('Error updating notifications:', error);
-    return NextResponse.json({ error: error.message || 'Failed to update notifications' }, { status: 500 });
+    console.error('Error marking notification as read:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to mark notification as read' },
+      { status: 500 }
+    );
   }
 }
 

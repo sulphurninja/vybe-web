@@ -9,7 +9,9 @@ export async function GET() {
   await db();
   const events = await Event.find().sort({ createdAt: -1 }).limit(50).lean();
   
-  // Add top voted venue image
+  console.log(`📍 Fetching ${events.length} events with location data...`);
+  
+  // Add top voted venue image and log location info
   const eventsWithCovers = await Promise.all(
     events.map(async (event) => {
       const options = await Option.find({ eventId: event._id.toString() })
@@ -19,6 +21,13 @@ export async function GET() {
       // Get the top voted venue option
       const topVenueOption = options.find(opt => opt.venue && opt.venue.photoUrl);
       
+      // Log location info for debugging
+      if (event.location?.latitude && event.location?.longitude) {
+        console.log(`   ✅ ${event.title}: location ${event.location.latitude}, ${event.location.longitude}`);
+      } else {
+        console.log(`   ⚠️  ${event.title}: NO LOCATION DATA`);
+      }
+      
       return {
         ...event,
         topVenueImage: topVenueOption?.venue?.photoUrl || null,
@@ -26,6 +35,7 @@ export async function GET() {
     })
   );
   
+  console.log(`✅ Returning ${eventsWithCovers.length} events with location data`);
   return NextResponse.json({ events: eventsWithCovers });
 }
 
@@ -54,6 +64,26 @@ export async function POST(req: Request) {
     quickPollEnabled: body.quickPollEnabled || false,
     allowAnonymousVoting: body.allowAnonymousVoting !== false,
   };
+  
+  // Add location data if provided
+  if (body.location && body.location.latitude && body.location.longitude) {
+    eventData.location = {
+      latitude: body.location.latitude,
+      longitude: body.location.longitude,
+      address: body.location.address || null,
+    };
+    console.log('📍 Location data added:', eventData.location);
+  } else if (body.latitude && body.longitude) {
+    // Support legacy format
+    eventData.location = {
+      latitude: body.latitude,
+      longitude: body.longitude,
+      address: body.address || null,
+    };
+    console.log('📍 Location data added (legacy format):', eventData.location);
+  } else {
+    console.log('⚠️ No location data provided for event');
+  }
   
   // Track user if logged in
   if (body.userId) {

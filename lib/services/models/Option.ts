@@ -26,6 +26,10 @@ const OptionSchema = new Schema({
     priceLevel: Number,
     photoUrl: String,
     photos: [String],
+    // Store latitude/longitude directly for easier access
+    latitude: Number,
+    longitude: Number,
+    // Also support coordinates format for backwards compatibility
     coordinates: {
       lat: Number,
       lng: Number,

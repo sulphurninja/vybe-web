@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getPlaceDetails } from "@/lib/services/googlePlaces";
 
 // Load environment variables
 const GOOGLE_PLACES_API_KEY = 
@@ -52,8 +53,26 @@ export async function GET(req: Request) {
 
     console.log(`✅ Found ${data.predictions?.length || 0} autocomplete suggestions`);
 
+    // Fetch geometry for each prediction in parallel
+    const predictionsWithGeometry = await Promise.all(
+      (data.predictions || []).map(async (prediction: any) => {
+        try {
+          const placeDetails = await getPlaceDetails(prediction.place_id);
+          return {
+            ...prediction,
+            geometry: placeDetails?.geometry || undefined,
+          };
+        } catch (error) {
+          console.warn(`⚠️ Failed to fetch geometry for place ${prediction.place_id}:`, error);
+          return prediction;
+        }
+      })
+    );
+
+    console.log(`📍 Enriched ${predictionsWithGeometry.filter((p: any) => p.geometry?.location).length} predictions with geometry`);
+
     return NextResponse.json({
-      predictions: data.predictions || [],
+      predictions: predictionsWithGeometry,
       status: data.status,
     });
   } catch (error: any) {
