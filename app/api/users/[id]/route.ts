@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import User from "@/lib/models/User";
+import User from "@/lib/services/models/User";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -121,6 +121,7 @@ export async function DELETE(req: Request, context: Ctx) {
     );
   }
 }
+
 
 
 

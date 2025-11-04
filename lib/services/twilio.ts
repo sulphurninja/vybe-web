@@ -4,13 +4,14 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 
 export async function sendSMS(to: string, message: string): Promise<boolean> {
+  // In development, skip actual SMS sending and just log
+  if (process.env.NODE_ENV === 'development' || process.env.SKIP_SMS === 'true') {
+    console.log('📱 [DEV MODE] SMS to', to, ':', message);
+    return true;
+  }
+  
   if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHONE_NUMBER) {
     console.error('❌ Twilio credentials not configured');
-    // In development, log the message instead of sending
-    if (process.env.NODE_ENV === 'development') {
-      console.log('📱 [DEV MODE] SMS to', to, ':', message);
-      return true;
-    }
     throw new Error('Twilio not configured');
   }
 
@@ -51,18 +52,13 @@ export async function sendOTPSMS(to: string, code: string): Promise<boolean> {
   return sendSMS(to, message);
 }
 
-// Email sending (simple for now, can be enhanced with SendGrid/etc later)
+// Email sending - now using SendGrid
 export async function sendOTPEmail(to: string, code: string): Promise<boolean> {
-  // For now, just log it in development
-  if (process.env.NODE_ENV === 'development') {
-    console.log('📧 [DEV MODE] Email to', to, '- OTP:', code);
-    return true;
-  }
-  
-  // TODO: Implement proper email sending with SendGrid or similar
-  console.log('📧 Email OTP to', to, ':', code);
-  return true;
+  // Import SendGrid service
+  const { sendOTPEmail: sendGridOTP } = await import('./sendgrid');
+  return sendGridOTP(to, code);
 }
+
 
 
 

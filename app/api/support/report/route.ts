@@ -40,11 +40,34 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     
+    console.log('📋 Received report submission:', body);
+    
     const { userId, email, name, category, subject, description, metadata } = body;
     
-    if (!email || !name || !category || !subject || !description) {
+    // Validate required fields
+    const missingFields = [];
+    if (!email) missingFields.push('email');
+    if (!name) missingFields.push('name');
+    if (!category) missingFields.push('category');
+    if (!subject) missingFields.push('subject');
+    if (!description) missingFields.push('description');
+    
+    if (missingFields.length > 0) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { 
+          error: 'Missing required fields',
+          missingFields,
+          received: { email, name, category, subject, description: description ? 'present' : 'missing' }
+        },
+        { status: 400 }
+      );
+    }
+    
+    // Validate category
+    const validCategories = ['bug', 'feature', 'content', 'abuse', 'other'];
+    if (!validCategories.includes(category)) {
+      return NextResponse.json(
+        { error: `Invalid category. Must be one of: ${validCategories.join(', ')}` },
         { status: 400 }
       );
     }
@@ -58,17 +81,17 @@ export async function POST(req: Request) {
     }
     
     const report = await Report.create({
-      userId,
+      userId: userId || undefined,
       email,
       name,
       category,
       subject,
       description,
       priority,
-      metadata,
+      metadata: metadata || {},
     });
     
-    console.log('📋 Support report created:', report._id, category);
+    console.log('✅ Support report created:', report._id, category);
     
     // TODO: Send email notification to support team
     // TODO: Send confirmation email to user
@@ -79,7 +102,7 @@ export async function POST(req: Request) {
       message: 'Report submitted successfully. We\'ll get back to you soon!',
     }, { status: 201 });
   } catch (error: any) {
-    console.error('Submit report error:', error);
+    console.error('❌ Submit report error:', error);
     return NextResponse.json(
       { error: error.message || 'Failed to submit report' },
       { status: 500 }
@@ -116,6 +139,8 @@ export async function GET(req: Request) {
     );
   }
 }
+
+
 
 
 

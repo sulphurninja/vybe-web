@@ -1,0 +1,10 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [{
+      "appID": "TEAM_ID.com.vybe.app",
+      "paths": ["/share/event/*"]
+    }]
+  }
+}
+

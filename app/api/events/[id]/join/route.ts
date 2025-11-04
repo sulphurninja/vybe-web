@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import Event from "@/lib/models/Event";
-import User from "@/lib/models/User";
+import Event from "@/lib/services/models/Event";
+import User from "@/lib/services/models/User";
 
 type Ctx = { params: Promise<{ id: string }> };
 

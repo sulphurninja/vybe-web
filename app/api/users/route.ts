@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import User from "@/lib/models/User";
+import User from "@/lib/services/models/User";
 import bcrypt from "bcryptjs";
 
 // Get user(s)

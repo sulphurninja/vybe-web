@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import Vote from "@/lib/models/Vote";
-import Option from "@/lib/models/Option";
-import User from "@/lib/models/User";
+import Vote from "@/lib/services/models/Vote";
+import Option from "@/lib/services/models/Option";
+import User from "@/lib/services/models/User";
 
 type Ctx = { params: Promise<{ id: string }> };
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import Notification from "@/lib/models/Notification";
+import Notification from "@/lib/services/models/Notification";
 
 // GET - Get user's notifications
 export async function GET(req: Request) {

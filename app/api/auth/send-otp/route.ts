@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import OTP from "@/lib/models/OTP";
-import User from "@/lib/models/User";
+import OTP from "@/lib/services/models/OTP";
+import User from "@/lib/services/models/User";
 import { sendOTPSMS, sendOTPEmail } from "@/lib/services/twilio";
 
 // Generate a 6-digit OTP
@@ -104,6 +104,7 @@ export async function POST(req: Request) {
     );
   }
 }
+
 
 
 
