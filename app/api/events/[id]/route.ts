@@ -19,7 +19,7 @@ export async function GET(_req: Request, context: Ctx) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   
-  console.log('✅ Event found:', e._id);
+  console.log('✅ Event found:', String(e._id));
   
   // Get options and invites
   const options = await Option.find({ eventId: eventId }).sort({ order: 1, createdAt: 1 }).lean();
