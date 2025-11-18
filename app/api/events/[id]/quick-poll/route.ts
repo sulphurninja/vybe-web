@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import Event from "@/lib/services/models/Event";
 import Option from "@/lib/services/models/Option";
-import Vote from "@/lib/services/models/Vote";
+import UserVotingPreference from "@/lib/services/models/UserVotingPreference";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -21,8 +21,11 @@ export async function GET(_req: Request, context: Ctx) {
     .sort({ category: 1, order: 1 })
     .lean();
     
-  // Get all votes
-  const votes = await Vote.find({ eventId: params.id, isQuickPoll: true }).lean();
+  // Get all voting preferences for this quick poll
+  const preferences = await UserVotingPreference.find({ 
+    eventId: params.id, 
+    isQuickPoll: true 
+  }).lean();
   
   // Group options by category
   const optionsByCategory = options.reduce((acc: any, opt) => {
@@ -31,19 +34,22 @@ export async function GET(_req: Request, context: Ctx) {
     return acc;
   }, {});
   
+  // Count unique voters
+  const uniqueVoters = new Set(preferences.map(p => p.voterName || p.guestToken || p.deviceId)).size;
+  
   return NextResponse.json({
     event,
     optionsByCategory,
-    votes,
-    totalVoters: new Set(votes.map(v => v.voterName || v.guestToken)).size
+    preferences,
+    totalVoters: uniqueVoters
   });
 }
 
-// Submit a complete quick poll vote (all categories at once)
+// Submit ranked preferences for quick poll (all categories at once)
 export async function POST(req: Request, context: Ctx) {
   await db();
   const params = await context.params;
-  const { voterName, votes: voteChoices } = await req.json();
+  const { voterName, preferences: categoryPreferences } = await req.json();
   
   if (!voterName) {
     return NextResponse.json({ error: "Voter name required" }, { status: 400 });
@@ -59,60 +65,61 @@ export async function POST(req: Request, context: Ctx) {
   const results = [];
   
   try {
-    // Process each category vote
-    for (const { category, optionId } of voteChoices) {
-      // Check if a vote already exists for this combination
-      const existingVote = await Vote.findOne({
+    // Process each category's ranked preferences
+    // categoryPreferences format: { [category]: [{ optionId, rank }, ...] }
+    for (const [category, rankings] of Object.entries(categoryPreferences)) {
+      // Get option names from database
+      const rankedPrefs = [];
+      for (const ranking of rankings as any[]) {
+        const option = await Option.findById(ranking.optionId);
+        if (option) {
+          rankedPrefs.push({
+            optionId: ranking.optionId,
+            optionName: option.label,
+            rank: ranking.rank
+          });
+        }
+      }
+      
+      // Delete existing preference if any
+      await UserVotingPreference.deleteOne({
         eventId: params.id,
+        voterName,
         category,
-        guestToken
+        isQuickPoll: true
       });
       
-      // If there's an existing vote for a different option, decrement that option's count
-      if (existingVote && existingVote.optionId.toString() !== optionId) {
-        await Option.findByIdAndUpdate(existingVote.optionId, {
-          $inc: { votes: -1 },
-          $pull: { voters: { voterId: guestToken } }
-        });
-      }
+      // Create new preference
+      const preference = await UserVotingPreference.create({
+        eventId: params.id,
+        voterName,
+        guestToken,
+        deviceId: guestToken, // Use same token for quick polls
+        category,
+        preferences: rankedPrefs,
+        isQuickPoll: true,
+        votedAt: new Date()
+      });
       
-      // Create or update vote
-      const vote = await Vote.findOneAndUpdate(
-        { eventId: params.id, category, guestToken },
-        {
-          eventId: params.id,
-          category,
-          optionId,
-          voterName,
-          guestToken,
-          isQuickPoll: true,
-          castAt: new Date()
-        },
-        { upsert: true, new: true }
-      );
-      
-      // Only increment if this is a new vote or changed vote
-      if (!existingVote || existingVote.optionId.toString() !== optionId) {
-        await Option.findByIdAndUpdate(optionId, {
-          $inc: { votes: 1 },
-          $addToSet: {
-            voters: {
-              voterId: guestToken,
-              voterName,
-              votedAt: new Date()
-            }
-          }
-        });
-      }
-      
-      results.push(vote);
+      results.push(preference);
     }
+    
+    // Update participant voted timestamp
+    await Event.updateOne(
+      { 
+        _id: params.id,
+        'quickPollParticipants.name': voterName 
+      },
+      { 
+        $set: { 'quickPollParticipants.$.votedAt': new Date() } 
+      }
+    );
     
     return NextResponse.json({ 
       success: true, 
       voterName,
       guestToken,
-      votes: results 
+      preferences: results 
     }, { status: 201 });
   } catch (error: any) {
     console.error('Quick poll submission error:', error);

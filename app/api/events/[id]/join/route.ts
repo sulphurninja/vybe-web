@@ -11,10 +11,12 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function POST(req: Request, context: Ctx) {
   await db();
   const params = await context.params;
-  const { userId } = await req.json();
+  const body = await req.json();
+  const { userId, guestToken, userName: providedUserName } = body;
   
-  if (!userId) {
-    return NextResponse.json({ error: "User ID is required" }, { status: 400 });
+  // Support both registered users and guest users
+  if (!userId && !guestToken) {
+    return NextResponse.json({ error: "User ID or guest token is required" }, { status: 400 });
   }
   
   try {
@@ -24,33 +26,91 @@ export async function POST(req: Request, context: Ctx) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
     
-    // Check if user is already a participant
-    const isParticipant = event.participants?.some((p: any) => p.userId === userId);
+    const participantId = userId || guestToken;
+    const isGuest = !!guestToken && !userId;
+    
+    // Check if user/guest is already a participant
+    const isParticipant = event.participants?.some((p: any) => p.userId === participantId);
     
     if (isParticipant) {
-      return NextResponse.json({ message: "Already joined" });
+      console.log(`⚠️ User/guest ${participantId} already joined event ${params.id}`);
+      return NextResponse.json({ message: "Already joined", alreadyJoined: true });
     }
     
     // Get user info
-    const user = await User.findById(userId);
-    const userName = user?.name || user?.username || user?.email || 'Someone';
+    let userName = providedUserName || 'Guest';
+    let user = null;
     
-    // Add user to participants
-    await Event.findByIdAndUpdate(params.id, {
-      $push: {
-        participants: {
-          userId,
-          joinedAt: new Date(),
-          role: 'participant'
+    if (!isGuest && userId) {
+      user = await User.findById(userId);
+      userName = user?.name || user?.username || user?.email || 'Someone';
+    } else if (isGuest) {
+      // Create or find guest user profile
+      user = await User.findOne({ guestToken });
+      
+      if (!user) {
+        console.log(`✨ Creating guest user profile for ${userName}`);
+        user = await User.create({
+          guestToken,
+          name: userName,
+          username: userName.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now().toString().slice(-4),
+          email: `${guestToken}@guest.vybe.app`,
+          isGuest: true,
+          stats: {
+            eventsJoined: 0,
+            eventsCreated: 0,
+            totalVotes: 0,
+          },
+          preferences: {
+            notifications: {
+              push: false,
+              email: false,
+              sms: false,
+            },
+          },
+        });
+        console.log(`✅ Guest user profile created: ${user._id}`);
+      } else {
+        console.log(`✅ Found existing guest user profile: ${user._id}`);
+        // Update name if changed
+        if (user.name !== userName) {
+          await User.findByIdAndUpdate(user._id, { name: userName });
         }
       }
-    });
+    }
+    
+    // Add user/guest to participants (use atomic operation to prevent duplicates)
+    const updateResult = await Event.findOneAndUpdate(
+      { 
+        _id: params.id,
+        'participants.userId': { $ne: participantId } // Only add if not already in array
+      },
+      {
+        $push: {
+          participants: {
+            userId: participantId,
+            userName,
+            joinedAt: new Date(),
+            role: 'participant',
+            isGuest: isGuest
+          }
+        }
+      },
+      { new: true }
+    );
+    
+    if (!updateResult) {
+      console.log(`⚠️ User/guest ${participantId} already in participants (atomic check)`);
+      return NextResponse.json({ message: "Already joined", alreadyJoined: true });
+    }
     
     // Update user stats
-    await User.findByIdAndUpdate(userId, {
-      $inc: { 'stats.eventsJoined': 1 },
-      lastActive: new Date()
-    });
+    if (user) {
+      await User.findByIdAndUpdate(user._id, {
+        $inc: { 'stats.eventsJoined': 1 },
+        lastActive: new Date()
+      });
+    }
     
     // Create notification for event host
     const host = await User.findById(event.createdBy || event.hostId);

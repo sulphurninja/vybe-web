@@ -10,6 +10,10 @@ const UserSchema = new Schema({
   avatar: String,
   bio: String,
   
+  // Guest user fields
+  isGuest: { type: Boolean, default: false },
+  guestToken: { type: String, sparse: true, unique: true },
+  
   // Auth
   passwordHash: String,  // For email/password auth
   authProviders: [{
@@ -63,6 +67,7 @@ const UserSchema = new Schema({
 UserSchema.index({ email: 1 });
 UserSchema.index({ username: 1 });
 UserSchema.index({ phone: 1 });
+UserSchema.index({ guestToken: 1 });
 
 export default models.User || model("User", UserSchema);
 

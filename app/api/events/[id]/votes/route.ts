@@ -32,64 +32,106 @@ export async function POST(req: Request, context: Ctx) {
     voterId, 
     voterName,
     guestToken,
-    isQuickPoll = false 
+    isQuickPoll = false,
+    previousOptionId
   } = await req.json();
   
-  const filter: any = { 
-    eventId: params.id, 
-    category,
-    ...(voterId ? { voterId } : { guestToken }) 
-  };
+  // For quick poll: create a new vote every time (no update)
+  // For standard mode: update existing vote (one vote per user per category)
   
-  // Check if user already voted in this category
-  const existingVote = await Vote.findOne(filter);
-  
-  // Update or create vote
-  const doc = await Vote.findOneAndUpdate(
-    filter,
-    { 
-      ...filter, 
-      optionId, 
-      voterName,
-      isQuickPoll,
-      castAt: new Date() 
-    },
-    { upsert: true, new: true }
-  );
-  
-  // Update vote counts on options
-  if (existingVote && existingVote.optionId.toString() !== optionId) {
-    // User changed their vote - decrement old option
-    await Option.findByIdAndUpdate(existingVote.optionId, { 
-      $inc: { votes: -1 },
-      $pull: { voters: { voterId: voterId || guestToken } }
+  if (isQuickPoll) {
+    // Quick Poll Mode: Allow multiple votes, just add a new vote
+    const newVote = await Vote.create({
+      eventId: params.id,
+      optionId,
+      category,
+      voterId: voterId || null,
+      voterName: voterName || 'Anonymous',
+      guestToken: guestToken || null,
+      isQuickPoll: true,
+      castAt: new Date()
     });
-  }
-  
-  const isNewVote = !existingVote;
-  const isChangedVote = existingVote && existingVote.optionId.toString() !== optionId;
-  
-  if (isNewVote || isChangedVote) {
-    // New vote or changed vote - increment new option
+    
+    // Increment vote count on the option
     await Option.findByIdAndUpdate(optionId, { 
       $inc: { votes: 1 },
       $addToSet: { 
         voters: { 
-          voterId: voterId || guestToken,
-          voterName,
+          voterId: voterId || guestToken || 'anonymous',
+          voterName: voterName || 'Anonymous',
           votedAt: new Date()
         } 
       }
     });
     
     // Update user stats if logged in user
-    if (voterId && isNewVote) {
+    if (voterId) {
       await User.findByIdAndUpdate(voterId, {
         $inc: { 'stats.totalVotes': 1 },
         lastActive: new Date()
       });
     }
+    
+    return NextResponse.json(newVote, { status: 201 });
+  } else {
+    // Standard Mode: Only one vote per user per category
+    const filter: any = { 
+      eventId: params.id, 
+      category,
+      isQuickPoll: false,
+      ...(voterId ? { voterId } : { guestToken }) 
+    };
+    
+    // Check if user already voted in this category (standard mode only)
+    const existingVote = await Vote.findOne(filter);
+    
+    // Update or create vote
+    const doc = await Vote.findOneAndUpdate(
+      filter,
+      { 
+        ...filter, 
+        optionId, 
+        voterName,
+        isQuickPoll: false,
+        castAt: new Date() 
+      },
+      { upsert: true, new: true }
+    );
+    
+    // Update vote counts on options
+    if (existingVote && existingVote.optionId.toString() !== optionId) {
+      // User changed their vote - decrement old option
+      await Option.findByIdAndUpdate(existingVote.optionId, { 
+        $inc: { votes: -1 },
+        $pull: { voters: { voterId: voterId || guestToken } }
+      });
+    }
+    
+    const isNewVote = !existingVote;
+    const isChangedVote = existingVote && existingVote.optionId.toString() !== optionId;
+    
+    if (isNewVote || isChangedVote) {
+      // New vote or changed vote - increment new option
+      await Option.findByIdAndUpdate(optionId, { 
+        $inc: { votes: 1 },
+        $addToSet: { 
+          voters: { 
+            voterId: voterId || guestToken,
+            voterName,
+            votedAt: new Date()
+          } 
+        }
+      });
+      
+      // Update user stats if logged in user
+      if (voterId && isNewVote) {
+        await User.findByIdAndUpdate(voterId, {
+          $inc: { 'stats.totalVotes': 1 },
+          lastActive: new Date()
+        });
+      }
+    }
+    
+    return NextResponse.json(doc, { status: 201 });
   }
-  
-  return NextResponse.json(doc, { status: 201 });
 }
