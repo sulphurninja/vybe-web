@@ -5,9 +5,29 @@ import Option from "@/lib/services/models/Option";
 import User from "@/lib/services/models/User";
 import { generateEventCover } from "@/lib/services/imageCollage";
 
-export async function GET() {
+export async function GET(req: Request) {
   await db();
-  const events = await Event.find().sort({ createdAt: -1 }).limit(50).lean();
+  
+  // Get userId from query params to filter user's events
+  const { searchParams } = new URL(req.url);
+  const userId = searchParams.get('userId');
+  
+  // Build query - filter by user if provided
+  let query: any = {};
+  if (userId) {
+    // Find events where user is creator OR participant
+    query = {
+      $or: [
+        { createdBy: userId },
+        { 'participants.userId': userId }
+      ]
+    };
+    console.log(`📍 Fetching events for user: ${userId}`);
+  } else {
+    console.log(`📍 Fetching all events (no userId filter)`);
+  }
+  
+  const events = await Event.find(query).sort({ createdAt: -1 }).limit(50).lean();
   
   console.log(`📍 Fetching ${events.length} events with location data...`);
   
